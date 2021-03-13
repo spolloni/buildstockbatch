@@ -227,10 +227,6 @@ def read_enduse_timeseries_parquet(fs, filename, all_cols):
     return df[all_cols]
 
 
-def read_and_concat_enduse_timeseries_parquet(fs, filenames, all_cols):
-    return pd.concat(read_enduse_timeseries_parquet(fs, filename, all_cols) for filename in filenames)
-
-
 def combine_results(fs, results_dir, cfg, do_timeseries=True):
     """Combine the results of the batch simulations.
 
@@ -335,14 +331,14 @@ def combine_results(fs, results_dir, cfg, do_timeseries=True):
             # Determine how many files should be in each partition and group the files
             npartitions = math.ceil(total_mem / MAX_PARQUET_MEMORY)  # 1 GB per partition
             npartitions = min(len(ts_filenames), npartitions)  # cannot have less than one file per partition
-            ts_files_in_each_partition = np.array_split(ts_filenames, npartitions)
 
             # Read the timeseries into a dask dataframe
-            read_and_concat_ts_pq_d = dask.delayed(
-                partial(read_and_concat_enduse_timeseries_parquet, fs, all_cols=all_ts_cols_sorted)
+            read_ts_pq_d = dask.delayed(
+                partial(read_enduse_timeseries_parquet, fs, all_cols=all_ts_cols_sorted)
             )
-            ts_df = dd.from_delayed(map(read_and_concat_ts_pq_d, ts_files_in_each_partition))
+            ts_df = dd.from_delayed(map(read_ts_pq_d, ts_filenames))
             ts_df = ts_df.set_index('building_id', sorted=True)
+            ts_df = ts_df.repartition(npartitions=npartitions)
 
             # Write out new dask timeseries dataframe.
             if isinstance(fs, LocalFileSystem):
